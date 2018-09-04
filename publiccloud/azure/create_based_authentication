@@ -1,0 +1,30 @@
+#!/bin/bash -e
+# More info on:
+# https://docs.microsoft.com/en-us/python/azure/python-sdk-azure-authenticate?view=azure-python#mgmt-auth-file
+
+function print_usage()
+{
+    echo "Usage:"
+    echo "  create_based_authentication <username> <password> <outputfile>";
+}
+
+if [ $# -lt 3 ]; then
+    print_usage;
+    exit 2;
+fi
+
+user=$1
+password=$2
+out=$3
+
+
+if [ -f $out ]; then
+    echo "File already exists - $out";
+    exit 2;
+fi
+
+az login -u "$user" -p "$password"
+
+az ad sp create-for-rbac --sdk-auth > $out
+
+echo "export AZURE_AUTH_LOCATION="`pwd`"/"$out
