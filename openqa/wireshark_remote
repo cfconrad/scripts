@@ -1,0 +1,29 @@
+#!/usr/bin/perl
+
+use Getopt::Long;
+
+Getopt::Long::Configure ("bundling");
+my $ifc = "eth0";
+my $host = "cfconrad-vm.qa.suse.de";
+my $ovs = "";
+
+GetOptions(
+        "interface|i=s" => \$ifc,
+        "host|r=s" => \$host,
+        'help|h' => sub {
+            print ("--interface, -i  <name>      Define interface to trace on.$/");
+            print ("--host,-r        <name>      Define the host to trace on.$/");
+            print ("--ovs                        Use ovs-tcpdump to trace.$/");
+            exit 0;
+        },
+        "ovs" => sub { $ovs = "ovs-"; },
+        );
+
+if ($host eq "fromm"){
+    $host = "fromm.arch.suse.de";
+}
+
+
+my $cmd = 'ssh root@' . $host . ' ' . $ovs . 'tcpdump  -i ' . $ifc . ' -U -s0 -w - "not port 22" | wireshark -k -i -';
+print $cmd . $/;
+system($cmd);
