@@ -1,0 +1,78 @@
+#!/usr/bin/perl
+use Mojo::Base -static;
+use Mojo::UserAgent;
+use Mojo::Util qw(trim);
+use Getopt::Long qw(:config no_ignore_case bundling auto_help);
+use Data::Dumper;
+
+my $dry_run;
+
+sub run {
+    my $cmd = shift;
+
+    print $cmd . $/;
+    unless ($dry_run){
+        system($cmd) eq 0 or die("FAILED: $cmd $/ $@");
+    }
+}
+
+GetOptions(
+    'dry-run' => \$dry_run) or die;
+die("Missing <url>") unless @ARGV;
+
+my $url = $ARGV[0];
+my $patch_series_url;
+my $title;
+
+if ($url =~ m%^(https?://[^/]+)/patch/([^/&]+)%){
+    my $site = $1;
+    my $res   = Mojo::UserAgent->new()->get($url)->res;
+    for my $link (@{$res->dom->find('a[href*="series"]')->map(attr => 'href')}){
+        if ($link =~ m%/series/(\d+)/mbox/%){
+            $url = $site.'/project/ltp/list/?series='.$1;
+            last;
+        }
+    }
+}
+
+if ($url =~ m%^(https:?//[^/]+)/project/ltp/list/\?series=(\d+)%) {
+    my $site = $1;
+    my $series_nr = $2;
+
+    my $res   = Mojo::UserAgent->new()->get($url)->res;
+    $title = trim($res->dom->find('td > a[href="?series='.$series_nr.'"]')->first()->text());
+    my $patch = trim($res->dom->find('tbody > tr[id^="patch_row:"] > td > a[href^="/patch/"]')->first()->text());
+    $title = $1 . "_" . $title if ($patch =~ m/^\[(v\d)[^\]]+\](.+)/);
+
+    $patch_series_url = $site . '/series/' . $series_nr . '/mbox/';
+}
+
+
+die("Patch series URL not found.") unless $patch_series_url;
+die("Unable to get title") unless $title;
+
+$title = trim($title);
+print "$/Patch series name: " . $title .$/.$/;
+$title = $1 . "_" . trim($2) if ($title =~ m/^\[(v\d)[^\]]+\](.+)/);
+$title =~ s/:\s+/ /g;
+$title =~ s/[:\/\s]/_/g;
+
+run("wget '$patch_series_url' -O '$title.patch'");
+run("git checkout -b '$title' master");
+run("git am '$title.patch'");
+
+__END__
+
+=head1 NAME
+
+ltp_checkout_series.pl - Create a branch and checkout a series to it
+
+=head1 SYNOPSIS
+
+ltp_checkout_series.pl [url]
+
+  Options:
+    --help       brief help message
+    --dry-run    Do nothing just post commands
+
+=cut
