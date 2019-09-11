@@ -26,7 +26,9 @@ my $title;
 
 if ($url =~ m%^(https?://[^/]+)/patch/([^/&]+)%){
     my $site = $1;
-    my $res   = Mojo::UserAgent->new()->get($url)->res;
+    my $ua = Mojo::UserAgent->new();
+    $ua->max_redirects(5);
+    my $res   = $ua->get($url)->res;
     for my $link (@{$res->dom->find('a[href*="series"]')->map(attr => 'href')}){
         if ($link =~ m%/series/(\d+)/mbox/%){
             $url = $site.'/project/ltp/list/?series='.$1;
@@ -38,8 +40,9 @@ if ($url =~ m%^(https?://[^/]+)/patch/([^/&]+)%){
 if ($url =~ m%^(https:?//[^/]+)/project/ltp/list/\?series=(\d+)%) {
     my $site = $1;
     my $series_nr = $2;
-
-    my $res   = Mojo::UserAgent->new()->get($url)->res;
+    my $ua = Mojo::UserAgent->new();
+    $ua->max_redirects(5);
+    my $res   = $ua->get($url)->res;
     $title = trim($res->dom->find('td > a[href="?series='.$series_nr.'"]')->first()->text());
     my $patch = trim($res->dom->find('tbody > tr[id^="patch_row:"] > td > a[href^="/patch/"]')->first()->text());
     $title = $1 . "_" . $title if ($patch =~ m/^\[(v\d)[^\]]+\](.+)/);
@@ -56,6 +59,7 @@ print "$/Patch series name: " . $title .$/.$/;
 $title = $1 . "_" . trim($2) if ($title =~ m/^\[(v\d)[^\]]+\](.+)/);
 $title =~ s/:\s+/ /g;
 $title =~ s/[:\/\s]/_/g;
+$title =~ s/[^A-Za-z_:]+/X/g;
 
 run("wget '$patch_series_url' -O '$title.patch'");
 run("git checkout -b '$title' master");
