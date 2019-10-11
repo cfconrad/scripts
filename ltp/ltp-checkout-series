@@ -16,6 +16,22 @@ sub run {
     }
 }
 
+sub do_http_request
+{
+    my $url = shift;
+    my $max_tries = 3;
+    my $res;
+    my $ua = Mojo::UserAgent->new();
+    $ua->max_redirects(5);
+    for(my $i = 0; $i < $max_tries; $i++){
+        $res = $ua->get($url)->result;
+        return $res if ($res->is_success());
+        print "[". ($i + 1) . "/$max_tries] Get $url failed - " . $res->message . $/;
+        sleep 1;
+    }
+    die("Failed to get $url");
+}
+
 GetOptions(
     'dry-run' => \$dry_run) or die;
 die("Missing <url>") unless @ARGV;
@@ -26,9 +42,7 @@ my $title;
 
 if ($url =~ m%^(https?://[^/]+)/patch/([^/&]+)%){
     my $site = $1;
-    my $ua = Mojo::UserAgent->new();
-    $ua->max_redirects(5);
-    my $res   = $ua->get($url)->res;
+    my $res = do_http_request($url);
     for my $link (@{$res->dom->find('a[href*="series"]')->map(attr => 'href')}){
         if ($link =~ m%/series/(\d+)/mbox/%){
             $url = $site.'/project/ltp/list/?series='.$1;
@@ -40,14 +54,15 @@ if ($url =~ m%^(https?://[^/]+)/patch/([^/&]+)%){
 if ($url =~ m%^(https:?//[^/]+)/project/ltp/list/\?series=(\d+)%) {
     my $site = $1;
     my $series_nr = $2;
-    my $ua = Mojo::UserAgent->new();
-    $ua->max_redirects(5);
-    my $res   = $ua->get($url)->res;
+    my $res = do_http_request($url);
     $title = trim($res->dom->find('td > a[href="?series='.$series_nr.'"]')->first()->text());
     my $patch = trim($res->dom->find('tbody > tr[id^="patch_row:"] > td > a[href^="/patch/"]')->first()->text());
     $title = $1 . "_" . $title if ($patch =~ m/^\[(v\d)[^\]]+\](.+)/);
 
     $patch_series_url = $site . '/series/' . $series_nr . '/mbox/';
+
+} else {
+    die ("Unkown link format given!");
 }
 
 
@@ -59,7 +74,7 @@ print "$/Patch series name: " . $title .$/.$/;
 $title = $1 . "_" . trim($2) if ($title =~ m/^\[(v\d)[^\]]+\](.+)/);
 $title =~ s/:\s+/ /g;
 $title =~ s/[:\/\s]/_/g;
-$title =~ s/[^A-Za-z_:]+/X/g;
+$title =~ s/[^A-Za-z0-9_:]+/X/g;
 
 run("wget '$patch_series_url' -O '$title.patch'");
 run("git checkout -b '$title' master");
