@@ -1,0 +1,24 @@
+#!/bin/bash +x
+
+pr_url="${1:?"Need 'pr_url' as parameter pointing to a github pull request or 'repo_name' (sending repo) and 'pr' variables, e.g. either 'https://github.com/os-autoinst/os-autoinst-distri-opensuse/pull/1234' 'me/os-autoinst-distri-opensuse' and '1234'"}"
+target_repo_part=${pr_url%%/pull*}
+pr="${pr_url##*/}"
+pr_url=${target_repo_part/github.com/api.github.com/repos}/pulls/$pr
+pr_content=$(curl "${AUTHENTICATED_REQUEST}" -s "$pr_url")
+label=$(echo "$pr_content" | jq -r '.head.label') || throw_json_error "$pr_url" "$pr_content"
+user=$(echo "$pr_content" | jq -r '.user.login') || throw_json_error "$pr_url" "$pr_content"
+repo_name="${repo_name:-"${label%:*}/${target_repo_part##*/}"}"
+branch="${branch:-"${label##*:}"}"
+repo="${repo:-"https://github.com/${repo_name}.git"}"
+
+echo "USER:   $user"
+echo "REPO:   $repo"
+echo "BRANCH: $branch"
+echo "PR:     #$pr"
+
+
+echo git checkout -b "PR$pr-$user-$branch" master
+git checkout -b "PR$pr-$user-$branch" master
+echo git pull "$repo" "$branch"
+git pull "$repo" "$branch"
+
