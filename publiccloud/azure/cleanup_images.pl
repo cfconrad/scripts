@@ -18,9 +18,9 @@ sub color_keep { return color('bold green') . shift . color('reset'); }
 
 sub run {
     my ($cmd) = @_;
-    print (" RUN: " . $cmd . $/);
+    print ("RUN:    " . $cmd . $/);
     my $out = `$cmd`;
-    die("FAILED: $cmd") if ($?);
+    die(color_delete("FAILED:") . $cmd) if ($?);
     return $out;
 }
 
