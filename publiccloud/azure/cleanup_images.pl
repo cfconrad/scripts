@@ -11,6 +11,7 @@ my $storage_acc = 'openqa';
 my $storage_container = 'sle-images';
 my $keep_img = 1;
 my $dry_run = 0;
+my $BOOTDIAG_MAX_AGE = 24 * 60 * 60;
 
 
 sub color_delete { return color('bold red') . shift . color('reset'); }
@@ -81,5 +82,19 @@ for my $d (@{$data}){
     } elsif ($d->{type} eq 'Microsoft.Compute/disks' ) {
         print color_delete("DELETE ") . " disk $d->{name} $/";
         run("az disk delete --resource-group '$rgroup' --name '". $d->{name} . "' -y") unless $dry_run;
+    }
+}
+
+#list and delete all bootdiagnostics in openqa
+$data = decode_json(run("az storage container list --account-name $storage_acc"));
+for my $c (@{$data}){
+    if ($c->{name} =~ /^bootdiagnostics-/){
+        my $time = str2time($c->{properties}->{lastModified});
+        if ((time() - $time) > $BOOTDIAG_MAX_AGE ){
+            print color_delete("DELETE ") . $c->{name} . $/;
+            run("az storage container delete --account-name $storage_acc --name " . $c->{name}) unless $dry_run;
+        } else {
+            print color_keep("KEEP   ") . $c->{name} . $/;
+        }
     }
 }
