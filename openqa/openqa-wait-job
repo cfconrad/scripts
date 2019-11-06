@@ -2,6 +2,7 @@
 
 use Mojo::Base -strict;
 use Mojo::JSON 'decode_json';
+use Mojo::UserAgent;
 use Data::Dumper;
 use Getopt::Long qw(:config no_ignore_case bundling auto_help);
 
@@ -26,12 +27,54 @@ sub check_job
     return;
 }
 
+sub do_http_request
+{
+    my $url = shift;
+    my $max_tries = 3;
+    my $res;
+    my $ua = Mojo::UserAgent->new();
+    $ua->max_redirects(5);
+    for(my $i = 0; $i < $max_tries; $i++){
+        $res = $ua->get($url)->result;
+        return $res if ($res->is_success());
+        print "[". ($i + 1) . "/$max_tries] Get $url failed - " . $res->message . $/;
+        sleep 1;
+    }
+    die("Failed to get $url");
+}
+
+sub get_schedule_statistics
+{
+    my ($host, $prio) = @_;
+    $prio //= -1;
+    $prio = 50 if ($prio == -1);
+    $host = "https://$host" unless ($host =~ m%https?://%);
+    my $url = "$host/tests/list_scheduled_ajax";
+    my $res = do_http_request($url);
+    my $json = decode_json($res->text());
+    my $count = scalar(@{$json->{data}});
+    my $blocked = scalar(grep { $_->{blocked_by_id} } @{$json->{data}});
+    my $with_equal_prio = scalar(grep { $_->{prio} == $prio } @{$json->{data}});
+    my $with_lower_prio = scalar(grep { $_->{prio} < $prio } @{$json->{data}});
+    print("$count scheduled jobs ($blocked blocked by other jobs) ($with_lower_prio with priority < $prio, $with_equal_prio with priority == $prio)$/");
+}
+
+sub set_job_prio
+{
+    my ($host, $job, $prio) = @_;
+    my $cmd = "openqa-client --host $host jobs/$job put --json-data '{\"priority\": $prio }'";
+    my $output = qx($cmd);
+    die("ERROR: command failed '$cmd'") unless($? == 0);
+}
+
 sub main {
     my $HOST = 'openqa.suse.de';
     my $JOB = 0;
+    my $prio = -1;
     my @JOBS;
     GetOptions(
         'host=s' => \$HOST,
+        'prio=i' => \$prio,
         'j|job=s' => sub { push @JOBS , @_; }
     ) or die;
 
@@ -61,8 +104,11 @@ sub main {
     }
 
     my $results = {};
+    my $count = 0;
     while ( 1 ) {
-        print("-$/");
+        $count++;
+        print("-[$count]-$/");
+        get_schedule_statistics($HOST, $prio) if(@JOBS);
         for my $job (keys(%{$results})){
             my $j = $results->{$job};
             print "$HOST/t$job - ". $j->{openqa_res}->{job}->{test} . " => $j->{result}" . $/;
@@ -77,6 +123,7 @@ sub main {
                 $results->{$job} = $res;
             } else {
                 push @next_jobs , $job;
+                set_job_prio($HOST, $job, $prio) if ($prio != -1 && $count == 1);
             }
         }
         @JOBS = @next_jobs;
@@ -101,7 +148,8 @@ openqa-wait-job [url] [[url2] [url3] ...]
 
   Options:
     --help       brief help message
-    --job        Specify a job as url or number
+    --job  <num> Specify a job as url or number
+    --prio <num> If given, set JOB(s) priority to given value
     --host       Specify a host, default https://openqa.suse.de
 
 =cut
