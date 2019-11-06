@@ -1,5 +1,5 @@
 #!/usr/bin/perl
-use Mojo::Base -static;
+use Mojo::Base -strict;
 use Mojo::UserAgent;
 use Mojo::Util qw(trim);
 use Getopt::Long qw(:config no_ignore_case bundling auto_help);
@@ -32,53 +32,60 @@ sub do_http_request
     die("Failed to get $url");
 }
 
-GetOptions(
-    'dry-run' => \$dry_run) or die;
-die("Missing <url>") unless @ARGV;
+sub main
+{
+    GetOptions(
+        'dry-run' => \$dry_run) or die;
+    die("Missing <url>") unless @ARGV;
 
-my $url = $ARGV[0];
-my $patch_series_url;
-my $title;
+    my $url = $ARGV[0];
+    my $patch_series_url;
+    my $title;
 
-if ($url =~ m%^(https?://[^/]+)/patch/([^/&]+)%){
-    my $site = $1;
-    my $res = do_http_request($url);
-    for my $link (@{$res->dom->find('a[href*="series"]')->map(attr => 'href')}){
-        if ($link =~ m%/series/(\d+)/mbox/%){
-            $url = $site.'/project/ltp/list/?series='.$1;
-            last;
+    if ($url =~ m%^(https?://[^/]+)/patch/([^/&]+)%){
+        my $site = $1;
+        my $res = do_http_request($url);
+        for my $link (@{$res->dom->find('a[href*="series"]')->map(attr => 'href')}){
+            if ($link =~ m%/series/(\d+)/mbox/%){
+                $url = $site.'/project/ltp/list/?series='.$1;
+                last;
+            }
         }
     }
+
+    if ($url =~ m%^(https:?//[^/]+)/project/ltp/list/\?series=(\d+)%) {
+        my $site = $1;
+        my $series_nr = $2;
+        my $res = do_http_request($url);
+        $title = trim($res->dom->find('td > a[href="?series='.$series_nr.'"]')->first()->text());
+        my $patch = trim($res->dom->find('tbody > tr[id^="patch_row:"] > td > a[href^="/patch/"]')->first()->text());
+        $title = $1 . "_" . $title if ($patch =~ m/^\[(v\d)[^\]]+\](.+)/);
+
+        $patch_series_url = $site . '/series/' . $series_nr . '/mbox/';
+
+    } else {
+        die ("Unkown link format given!");
+    }
+
+
+    die("Patch series URL not found.") unless $patch_series_url;
+    die("Unable to get title") unless $title;
+
+    $title = trim($title);
+    print "$/Patch series name: " . $title .$/.$/;
+    $title = $1 . "_" . trim($2) if ($title =~ m/^\[(v\d)[^\]]+\](.+)/);
+    $title =~ s/:\s+/ /g;
+    $title =~ s/[:\/\s]/_/g;
+    $title =~ s/[^A-Za-z0-9_:]+/X/g;
+
+    run("wget '$patch_series_url' -O 'patch_$title.patch'");
+    run("git checkout -b '$title' master");
+    run("git am '$title.patch'");
+
+    return 0;
 }
 
-if ($url =~ m%^(https:?//[^/]+)/project/ltp/list/\?series=(\d+)%) {
-    my $site = $1;
-    my $series_nr = $2;
-    my $res = do_http_request($url);
-    $title = trim($res->dom->find('td > a[href="?series='.$series_nr.'"]')->first()->text());
-    my $patch = trim($res->dom->find('tbody > tr[id^="patch_row:"] > td > a[href^="/patch/"]')->first()->text());
-    $title = $1 . "_" . $title if ($patch =~ m/^\[(v\d)[^\]]+\](.+)/);
-
-    $patch_series_url = $site . '/series/' . $series_nr . '/mbox/';
-
-} else {
-    die ("Unkown link format given!");
-}
-
-
-die("Patch series URL not found.") unless $patch_series_url;
-die("Unable to get title") unless $title;
-
-$title = trim($title);
-print "$/Patch series name: " . $title .$/.$/;
-$title = $1 . "_" . trim($2) if ($title =~ m/^\[(v\d)[^\]]+\](.+)/);
-$title =~ s/:\s+/ /g;
-$title =~ s/[:\/\s]/_/g;
-$title =~ s/[^A-Za-z0-9_:]+/X/g;
-
-run("wget '$patch_series_url' -O '$title.patch'");
-run("git checkout -b '$title' master");
-run("git am '$title.patch'");
+exit main();
 
 __END__
 
