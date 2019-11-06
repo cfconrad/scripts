@@ -1,0 +1,107 @@
+#!/usr/bin/perl
+
+use Mojo::Base -strict;
+use Mojo::JSON 'decode_json';
+use Data::Dumper;
+use Getopt::Long qw(:config no_ignore_case bundling auto_help);
+
+exit(main(@ARGV));
+
+sub check_job
+{
+    my ($host, $job) = @_;
+    my $cmd = "openqa-client --json-output --host $host jobs/$job";
+    my $output = qx($cmd);
+    die("ERROR: command failed '$cmd'") unless($? == 0);
+    my $res = decode_json($output);
+    if ($res->{error_status}){
+        return { 'job' => $job, 'host' => $host, result => 'ERROR_STATUS', msg => $res->{error_status} };
+    }
+    my $state = $res->{job}->{state};
+    if ( $state eq 'done'){
+        system('notify-send "Openqa-job[' . $job . '] ready result:' . $res->{job}->{result} . '"');
+        return { job => $job, host => $host, result => $res->{job}->{result}, openqa_res => $res };
+    }
+    print "$host/t$job - ". $res->{job}->{test} . " => $state" . $/;
+    return;
+}
+
+sub main {
+    my $HOST = 'openqa.suse.de';
+    my $JOB = 0;
+    my @JOBS;
+    GetOptions(
+        'host=s' => \$HOST,
+        'j|job=s' => sub { push @JOBS , @_; }
+    ) or die;
+
+    my @parsable_urls;
+    for my $arg (@ARGV){
+        if ($arg eq '-'){
+            while (my $line = <>){
+                push(@parsable_urls, ($line =~ m/(https?:\/\/[^\s]+)/gm));
+            }
+        } else {
+            push(@parsable_urls, $arg);
+        }
+    }
+
+    for my $url (@parsable_urls){
+        if ($url =~ m%^(https?://[^/]+)/tests/(\d+)%){
+            $HOST = $1;
+            push @JOBS, $2;
+        }elsif ($url =~ m%^(https?://[^/]+)/t(\d+)%){
+            $HOST = $1;
+            push @JOBS, $2;
+        }elsif ($url =~ m/^\d+$/){
+            push @JOBS, $url;
+        } else {
+            die("Unable to parse $url");
+        }
+    }
+
+    my $results = {};
+    while ( 1 ) {
+        print("-$/");
+        for my $job (keys(%{$results})){
+            my $j = $results->{$job};
+            print "$HOST/t$job - ". $j->{openqa_res}->{job}->{test} . " => $j->{result}" . $/;
+        }
+
+        last if (@JOBS == 0);
+
+        my @next_jobs;
+        for my $job (@JOBS){
+            my $res = check_job($HOST, $job);
+            if ($res){
+                $results->{$job} = $res;
+            } else {
+                push @next_jobs , $job;
+            }
+        }
+        @JOBS = @next_jobs;
+        sleep 5;
+    }
+
+    return 0;
+}
+
+__END__
+
+=head1 NAME
+
+openqa-wait-job - Poll status from given job(s) and notify if ready.
+
+=head1 SYNOPSIS
+
+Use C<-> to read URLs from C<STDIN>. Could be used to parse output of
+openqa-clone-custom-git-refspec.
+
+openqa-wait-job [url] [[url2] [url3] ...]
+
+  Options:
+    --help       brief help message
+    --job        Specify a job as url or number
+    --host       Specify a host, default https://openqa.suse.de
+
+=cut
