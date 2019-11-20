@@ -19,11 +19,11 @@ sub check_job
         return { 'job' => $job, 'host' => $host, result => 'ERROR_STATUS', msg => $res->{error_status} };
     }
     my $state = $res->{job}->{state};
-    if ( $state eq 'done'){
+    print "$host/t$job - ". $res->{job}->{test} . " => $state" . $/;
+    if ( $state eq 'done' || $state eq 'cancelled'){
         system('notify-send "Openqa-job[' . $job . '] ready result:' . $res->{job}->{result} . '"');
         return { job => $job, host => $host, result => $res->{job}->{result}, openqa_res => $res };
     }
-    print "$host/t$job - ". $res->{job}->{test} . " => $state" . $/;
     return;
 }
 
@@ -82,7 +82,7 @@ sub main {
     for my $arg (@ARGV){
         if ($arg eq '-'){
             while (my $line = <>){
-                push(@parsable_urls, ($line =~ m/(https?:\/\/[^\s]+)/gm));
+                push(@parsable_urls, ($line =~ m%(https?://[^/]+/(?:t\d+|tests/\d+))\s+%gm));
             }
         } else {
             push(@parsable_urls, $arg);
@@ -103,6 +103,9 @@ sub main {
         }
     }
 
+    print "Wait for " . @JOBS . " jobs:";
+    print $/ if(@JOBS > 1);
+    print "  $HOST/t$_ $/" for(@JOBS);
     my $results = {};
     my $count = 0;
     while ( 1 ) {
