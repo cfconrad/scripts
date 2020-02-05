@@ -5,6 +5,7 @@ use Mojo::JSON 'decode_json';
 use Mojo::UserAgent;
 use Data::Dumper;
 use Getopt::Long qw(:config no_ignore_case bundling auto_help);
+use Cwd qw'getcwd abs_path';
 
 exit(main(@ARGV));
 
@@ -25,6 +26,20 @@ sub check_job
         return { job => $job, host => $host, result => $res->{job}->{result}, openqa_res => $res };
     }
     return;
+}
+
+sub download_job
+{
+    my ($host, $job) = @_;
+    my $dir = abs_path(getcwd);
+    mkdir $job unless -d $job;
+    chdir $job;
+
+    for my $file (qw(vars.json serial0.txt autoinst-log.txt
+         worker-log.txt serial_terminal.txt virtio_console1.log)){
+        system("wget -q $host/tests/$job/file/$file");
+    }
+    chdir $dir;
 }
 
 sub do_http_request
@@ -70,12 +85,14 @@ sub set_job_prio
 sub main {
     my $HOST = 'openqa.suse.de';
     my $JOB = 0;
+    my $DO_DOWNLOAD = 0;
     my $prio = -1;
     my @JOBS;
     GetOptions(
         'host=s' => \$HOST,
         'prio=i' => \$prio,
-        'j|job=s' => sub { push @JOBS , @_; }
+        'j|job=s' => sub { push @JOBS , @_; },
+        'download' => \$DO_DOWNLOAD,
     ) or die;
 
     my @parsable_urls;
@@ -124,6 +141,7 @@ sub main {
             my $res = check_job($HOST, $job);
             if ($res){
                 $results->{$job} = $res;
+                download_job($HOST, $job) if ($DO_DOWNLOAD);
             } else {
                 push @next_jobs , $job;
                 set_job_prio($HOST, $job, $prio) if ($prio != -1 && $count == 1);
@@ -154,5 +172,6 @@ openqa-wait-job [url] [[url2] [url3] ...]
     --job  <num> Specify a job as url or number
     --prio <num> If given, set JOB(s) priority to given value
     --host       Specify a host, default https://openqa.suse.de
+    --download   Download most needed logfiles from job if it is finish
 
 =cut
