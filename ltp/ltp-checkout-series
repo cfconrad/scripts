@@ -80,7 +80,7 @@ sub main
 
     run("wget '$patch_series_url' -O 'patch_$title.patch'");
     run("git checkout -b '$title' master");
-    run("git am '$title.patch'");
+    run("git am 'patch_$title.patch'");
 
     return 0;
 }
