@@ -1,0 +1,134 @@
+#!/usr/bin/perl
+
+use Mojo::Base -strict;
+use Mojo::UserAgent;
+use Mojo::UserAgent::Transactor;
+use Mojo::File qw(path);
+use Mojo::JSON qw(decode_json encode_json);
+use Getopt::Long qw(:config no_ignore_case bundling auto_help);
+use Data::Dumper;
+
+
+sub get_job_details {
+    my ($host, $job) = @_;
+
+    my $cmd = "openqa-client --host $host --json-output jobs/$job";
+    say("Downloads $job/details.json");
+    system ("$cmd > $job/details.json");
+    my $j = decode_json (path("$job/details.json")->slurp());
+    my $worker_id = $j->{job}->{assigned_worker_id};
+    $cmd = "openqa-client --host $host --json-output workers/$worker_id";
+    say("Downloads $job/worker.json");
+    system ("$cmd > $job/worker.json");
+}
+
+sub parse_size {
+    my $size = shift;
+
+    if ( $size =~ /^(\d+)(k|kb)$/i){
+        return $1 * 1024;
+    } elsif ( $size =~ /^(\d+)(m|mb)$/i){
+        return $1 * 1024 * 1024;
+    } elsif ( $size =~ /^(\d+)(g|gb)$/i){
+        return $1 * 1024 * 1024 * 1024;
+    } elsif ($size =~ /^\d+$/){
+        return $size;
+    } elsif ($size eq -1){
+        return 2^64;
+    }
+    die("Unknown size format $size");
+}
+
+sub main {
+    my $HOST = 'https://openqa.suse.de';
+    my @JOBS;
+    my $MAX_DL_SIZE = parse_size("200M");
+    my $SKIP = qr/(\.iso|\.qcow2?|video|\.ogv)$/;
+
+    GetOptions(
+        'host=s' => \$HOST,
+        'max-download-size|m=s' => sub {
+            my ($opt_name, $opt_value) = @_;
+            $MAX_DL_SIZE = parse_size($opt_value);
+        },
+        'skip=s' => \$SKIP,
+    ) or die;
+
+    my @parsable_urls;
+    for my $arg (@ARGV){
+        if ($arg eq '-'){
+            while (my $line = <>){
+                push(@parsable_urls, ($line =~ m%(https?://[^/]+/(?:t\d+|tests/\d+))\s+%gm));
+            }
+        } else {
+            push(@parsable_urls, $arg);
+        }
+    }
+
+    for my $url (@parsable_urls){
+        if ($url =~ m%^(https?://[^/]+)/tests/(\d+)%){
+            $HOST = $1;
+            push @JOBS, $2;
+        }elsif ($url =~ m%^(https?://[^/]+)/t(\d+)%){
+            $HOST = $1;
+            push @JOBS, $2;
+        }elsif ($url =~ m/^\d+$/){
+            push @JOBS, $url;
+        } else {
+            die("Unable to parse $url");
+        }
+    }
+
+    my $ua      = Mojo::UserAgent->new();
+    $ua->insecure(1);
+    $ua->max_redirects(5);
+    $ua->max_response_size($MAX_DL_SIZE);
+
+    $HOST =~ s'/+$'';
+    for my $job (@JOBS) {
+        say '#'x79;
+
+        path($job)->make_path();
+        my $url = $HOST . '/t' . $job;
+        say $url;
+        my $dom = $ua->get($url)->res->dom;
+        die("Unable to retrieve html from $url") unless($dom);
+        my $files = $dom->find('div#downloads')->first()->find('a')->map(attr => 'href');
+        $files->each(sub {
+                my $link = shift;
+                my $filename = path($link)->basename;
+                my $file_path = $job . "/" . $filename;
+
+                if ($link =~ /$SKIP/){
+                    say ("Skip " . $filename);
+                    return;
+                }
+                return if -e $file_path;
+
+                $link =~ s'^/+'';
+                $url = join('/', $HOST, $link);
+                say "Download $url";
+                my $tx = $ua->get($url);
+                $tx->result->save_to($file_path);
+            });
+        get_job_details($HOST, $job);
+    }
+}
+
+exit(main(@ARGV));
+
+__END__
+
+=head1 NAME
+
+Download all assets from job and put it in separate folder
+
+=head1 SYNOPSIS
+
+openqa-download-job [options] [urls|job_ids]
+
+  Options:
+    --host              On which host the job is triggered (default: openqa.suse.de)
+    --max-download-size Maximum file size to download (default: 100M), set -1 for unlimited.
+
+=cut
