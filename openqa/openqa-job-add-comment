@@ -1,0 +1,76 @@
+#!/usr/bin/perl
+
+use Mojo::Base -strict;
+use Mojo::UserAgent;
+use Mojo::UserAgent::Transactor;
+use Mojo::File qw(path);
+use Getopt::Long qw(:config no_ignore_case bundling auto_help);
+use Data::Dumper;
+
+
+sub main {
+    my $HOST = 'https://openqa.suse.de';
+    my @JOBS;
+    my $COMMENT = undef;
+
+    GetOptions(
+        'host=s' => \$HOST,
+        'comment|c=s' => \$COMMENT,
+    ) or die;
+
+    die("Missing --comment") unless($COMMENT);
+
+    my @parsable_urls;
+    for my $arg (@ARGV){
+        if ($arg eq '-'){
+            while (my $line = <>){
+                push(@parsable_urls, ($line =~ m%(https?://[^/]+/(?:t\d+|tests/\d+))\s+%gm));
+            }
+        } else {
+            push(@parsable_urls, $arg);
+        }
+    }
+
+    for my $url (@parsable_urls){
+        if ($url =~ m%^(https?://[^/]+)/tests/(\d+)%){
+            $HOST = $1;
+            push @JOBS, $2;
+        }elsif ($url =~ m%^(https?://[^/]+)/t(\d+)%){
+            $HOST = $1;
+            push @JOBS, $2;
+        }elsif ($url =~ m/^\d+$/){
+            push @JOBS, $url;
+        } else {
+            die("Unable to parse $url");
+        }
+    }
+
+    $HOST =~ s'/+$'';
+    $COMMENT=~ s/'/'"'"'/;
+    for my $job (@JOBS) {
+        say '#'x79;
+        my $url = $HOST . '/t' . $job;
+
+        # openqa-client --host https://openqa.suse.de jobs/3918778/comments post --form text="test"
+        my $cmd = "openqa-client --host $HOST jobs/$job/comments post  --form 'text=$COMMENT'";
+        say $cmd;
+        system($cmd);
+    }
+}
+
+exit(main(@ARGV));
+
+__END__
+
+=head1 NAME
+
+Download all assets from job and put it in separate folder
+
+=head1 SYNOPSIS
+
+openqa-download-job [options] [urls|job_ids]
+
+  Options:
+    --host                On which host the job is triggered (default: openqa.suse.de)
+    --comment|-c <string> The comment to add to the tests
+=cut
