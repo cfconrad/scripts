@@ -1,0 +1,11 @@
+#!/bin/bash
+
+export VAULT_ADDR="https://publiccloud.qa.suse.de/vault"
+USERNAME="XXXX"
+PASSWORD="XXXX"
+VAULT_NAMESPACE=${VAULT_NAMESPACE:-YOUR_DEFAULT_NS}
+
+function vault_login
+{
+    export VAULT_TOKEN=`vault login -token-only -method=userpass username="${USERNAME}" password="${PASSWORD}"`
+}

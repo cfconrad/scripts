@@ -1,0 +1,33 @@
+#!/bin/bash -e
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
+source "$SCRIPT_DIR/.vault_include"
+
+vault_login;
+
+RES=$(vault read "${VAULT_NAMESPACE}/azure/creds/openqa-role" -format=json)
+echo "$RES"
+LEASE_ID=$(echo "${RES}" | jq -r '.lease_id')
+
+client_id=$(echo "${RES}" | jq -r '.data.client_id')
+client_secret=$(echo "${RES}" | jq -r '.data.client_secret')
+
+RES=$(vault read "${VAULT_NAMESPACE}/secret/azure/openqa-role" -format=json)
+tenant_id=$(echo "${RES}" | jq -r '.data.tenant_id')
+subscription=$(echo "${RES}" | jq -r '.data.subscription_id')
+region=${ARM_TEST_LOCATION:-westeurope}
+
+echo "--------------------------------"
+echo "Vault namespace: ${VAULT_NAMESPACE}"
+echo "--------------------------------"
+echo "# Revoke with:"
+echo "curl --header 'X-Vault-Token: $VAULT_TOKEN'  --request POST --data '{\"lease_id\":\"${LEASE_ID}\"}' ${VAULT_ADDR}/v1/sys/leases/revoke" | tee -a ~/.vault_leases
+
+echo "--------------------------------"
+echo "export ARM_SUBSCRIPTION_ID='$subscription'"
+echo "export ARM_CLIENT_ID='$client_id'"
+echo "export ARM_CLIENT_SECRET='$client_secret'"
+echo "export ARM_TENANT_ID='$tenant_id'"
+echo "export ARM_ENVIRONMENT='public'"
+echo "export ARM_TEST_LOCATION='$region'"
+echo "while ! az login --service-principal -u '$client_id' -p '$client_secret' -t '$tenant_id'; do sleep 1; done"
+
