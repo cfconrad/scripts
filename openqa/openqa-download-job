@@ -89,11 +89,11 @@ sub main {
         say '#'x79;
 
         path($job)->make_path();
-        my $url = $HOST . '/t' . $job;
+        my $url = $HOST . '/tests/' . $job . "/downloads_ajax";
         say $url;
         my $dom = $ua->get($url)->res->dom;
         die("Unable to retrieve html from $url") unless($dom);
-        my $files = $dom->find('div#downloads')->first()->find('a')->map(attr => 'href');
+        my $files = $dom->find('a')->map(attr => 'href');
         $files->each(sub {
                 my $link = shift;
                 my $filename = path($link)->basename;
