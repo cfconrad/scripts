@@ -1,0 +1,124 @@
+#!/usr/bin/perl -w
+
+use Mojo::Base -strict;
+use Mojo::UserAgent;
+use Getopt::Long qw(:config no_ignore_case bundling auto_help);
+use JSON 'decode_json';
+use Data::Dumper;
+
+sub settings_match {
+    my ($settings, $filter) = @_;
+
+    for my $key (keys(%$settings)){
+        if (exists($filter->{$key})){
+            my $v = $filter->{$key} ;
+            if ($settings->{$key} !~ /$v/ ){
+                return;
+            }
+        }
+    }
+    return "1 TRUE";
+}
+
+sub print_job {
+    my ($HOST, $j) = @_;
+
+    print(sprintf("%s/t%d [%s]", $HOST, $j->{id}, $j->{name}));
+}
+
+sub openqa_get_jobs {
+    my ($HOST, %filter) = @_;
+    my $cmd = "openqa-client --host $HOST jobs --json-output";
+    $cmd .= " $_=$filter{$_}" foreach (sort(keys(%filter)));
+
+    print "# Executing: $cmd $/";
+    my $output = qx($cmd);
+    die($@) unless $? == 0;
+    my $jobs = decode_json($output);
+
+    return @{$jobs->{jobs}};
+}
+
+sub main {
+    my $GROUP_ID;
+    my $HOST = 'http://openqa.suse.de';
+    GetOptions(
+        'host=s'      => \$HOST,
+        'groupid=s'   => \$GROUP_ID,
+    ) or die;
+
+
+    my %filter = ( );
+    my %settings_filter;
+    my %job_filter = (state => '^done$');
+
+    $filter{groupid} = $GROUP_ID if $GROUP_ID;
+
+    for my $arg (@ARGV){
+        if ($arg =~ m'(https?://[^/]+)/group_overview/(\d+)'){
+            $HOST = $1;
+            $filter{groupid} = $2;
+        }
+        elsif ($arg =~ m'(https?://[^/]+)/tests/overview\?(((\w+=[^&]+)&?)+)'){
+            $HOST = $1;
+            %filter = (%filter, map(split(/=/, $_), split(/\&/, $2)));
+        }
+        elsif ($arg =~/^(\w+)=(.+)$/){
+            my $key = $1;
+            my $value = $2;
+            if ($key =~ m/^BUILD|VERSION/i){
+                $filter{lc($key)} = $value;
+            }
+            elsif ($key =~ m/^groupid|group|__GROUP/i){
+                $filter{groupid} = $value;
+            } elsif ($key =~ /^name|state|result/){
+                $job_filter{$key} = $value;
+            } else {
+                $settings_filter{$key} = $value;
+            }
+        }
+    }
+    die("Filter cannot be empty. Specify one of the following: ".
+        "version,group,build") unless keys(%filter);
+
+    my @jobs = openqa_get_jobs($HOST, %filter);
+    for my $j (@jobs){
+        if (!settings_match($j->{settings}, \%settings_filter)){
+            next;
+        }
+        if (!settings_match($j, \%job_filter)){
+            next;
+        }
+        print_job($HOST, $j);
+        print $/;
+    }
+
+    return 0;
+}
+
+
+exit main(@ARGV);
+
+__END__
+
+=head1 NAME
+
+Print job URL and name by given filters.
+
+=head1 Usage:
+
+=head1 SYNOPSIS
+
+openqa-query-jobs-by-settings [options] [urls|job_ids]
+
+  Options:
+    --host              On which host the job is triggered (default: openqa.suse.de)
+    --grouip            Mandatory parameter in URL  Maximum file size to download (default: 100M), set -1 for unlimited.
+
+
+C<openqa-query-jobs-by-settings 'https://openqa.suse.de/tests/overview?build=0027&groupid=274'>
+
+C<openqa-query-jobs-by-settings group=274 name=publiccloud_upload_img>
+
+
+=cut
