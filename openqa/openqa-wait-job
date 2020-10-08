@@ -83,7 +83,7 @@ sub set_job_prio
 }
 
 sub main {
-    my $HOST = 'openqa.suse.de';
+    my $HOST = 'https://openqa.suse.de';
     my $JOB = 0;
     my $DO_DOWNLOAD = 0;
     my $prio = -1;
@@ -100,6 +100,15 @@ sub main {
         if ($arg eq '-'){
             while (my $line = <>){
                 push(@parsable_urls, ($line =~ m%(https?://[^/]+/(?:t\d+|tests/\d+))\s+%gm));
+                if ($line =~ m/^\s*{\s*$/){
+                    say "Hmm yummy -- looks like JSON input.";
+                    $line .= $_ while(<>);
+                    my $json = decode_json($line);
+                    push @JOBS, @{$json->{ids}};
+                    for my $f (@{$json->{failed}}){
+                        push @JOBS, $f->{job_id} if ($f->{job_id});
+                    }
+                }
             }
         } else {
             push(@parsable_urls, $arg);
@@ -151,7 +160,7 @@ sub main {
         sleep 5;
     }
 
-    return 0;
+    exit grep {!m/^passed$/} map { $results->{$_}->{result} } keys(%$results);
 }
 
 __END__
@@ -163,7 +172,12 @@ openqa-wait-job - Poll status from given job(s) and notify if ready.
 =head1 SYNOPSIS
 
 Use C<-> to read URLs from C<STDIN>. Could be used to parse output of
-openqa-clone-custom-git-refspec.
+C<openqa-clone-custom-git-refspec> or C<openqa-client --json-output isos post>.
+
+If one job failed, the exit code of this programm is also > 0.
+
+example:
+openqa-client --json-output isos post VERSION=FOO | openqa-wait-job --prio 20 -
 
 openqa-wait-job [url] [[url2] [url3] ...]
 
