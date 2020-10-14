@@ -100,13 +100,16 @@ sub main {
         if ($arg eq '-'){
             while (my $line = <>){
                 push(@parsable_urls, ($line =~ m%(https?://[^/]+/(?:t\d+|tests/\d+))\s+%gm));
-                if ($line =~ m/^\s*{\s*$/){
+                if ($line =~ m/^\s*{\s*$/ || $line =~ m/^\s*{.*}\s*$/){
                     say "Hmm yummy -- looks like JSON input.";
                     $line .= $_ while(<>);
                     my $json = decode_json($line);
-                    push @JOBS, @{$json->{ids}};
-                    for my $f (@{$json->{failed}}){
-                        push @JOBS, $f->{job_id} if ($f->{job_id});
+                    push @JOBS, @{$json->{ids}} if $json->{ids};
+                    push @JOBS, $json->{id} if $json->{id};
+                    if ($json->{failed}){
+                        for my $f (@{$json->{failed}}){
+                            push @JOBS, $f->{job_id} if ($f->{job_id});
+                        }
                     }
                 }
             }
@@ -178,6 +181,8 @@ If one job failed, the exit code of this programm is also > 0.
 
 example:
 openqa-client --json-output isos post VERSION=FOO | openqa-wait-job --prio 20 -
+
+openqa-clone-custom-git-refspec <pr-url> <job-url> | openqa-wait-job --prio 20 -
 
 openqa-wait-job [url] [[url2] [url3] ...]
 
