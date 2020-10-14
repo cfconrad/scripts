@@ -96,26 +96,24 @@ sub main {
     ) or die;
 
     my @parsable_urls;
-    for my $arg (@ARGV){
-        if ($arg eq '-'){
-            while (my $line = <>){
-                push(@parsable_urls, ($line =~ m%(https?://[^/]+/(?:t\d+|tests/\d+))\s+%gm));
-                if ($line =~ m/^\s*{\s*$/ || $line =~ m/^\s*{.*}\s*$/){
-                    say "Hmm yummy -- looks like JSON input.";
-                    $line .= $_ while(<>);
-                    my $json = decode_json($line);
-                    push @JOBS, @{$json->{ids}} if $json->{ids};
-                    push @JOBS, $json->{id} if $json->{id};
-                    if ($json->{failed}){
-                        for my $f (@{$json->{failed}}){
-                            push @JOBS, $f->{job_id} if ($f->{job_id});
-                        }
+    if ( -p STDIN ){
+        while (my $line = <>){
+            push(@parsable_urls, ($line =~ m%(https?://[^/]+/(?:t\d+|tests/\d+))\s+%gm));
+            if ($line =~ m/^\s*{\s*$/ || $line =~ m/^\s*{.*}\s*$/){
+                say "Hmm yummy -- looks like JSON input.";
+                $line .= $_ while(<>);
+                my $json = decode_json($line);
+                push @JOBS, @{$json->{ids}} if $json->{ids};
+                push @JOBS, $json->{id} if $json->{id};
+                if ($json->{failed}){
+                    for my $f (@{$json->{failed}}){
+                        push @JOBS, $f->{job_id} if ($f->{job_id});
                     }
                 }
             }
-        } else {
-            push(@parsable_urls, $arg);
         }
+    } else {
+        push(@parsable_urls, @ARGV);
     }
 
     for my $url (@parsable_urls){
@@ -174,8 +172,8 @@ openqa-wait-job - Poll status from given job(s) and notify if ready.
 
 =head1 SYNOPSIS
 
-Use C<-> to read URLs from C<STDIN>. Could be used to parse output of
-C<openqa-clone-custom-git-refspec> or C<openqa-client --json-output isos post>.
+Could be used to parse output of C<openqa-clone-custom-git-refspec> or
+C<openqa-client --json-output isos post>.
 
 If one job failed, the exit code of this programm is also > 0.
 
