@@ -1,0 +1,21 @@
+#!/usr/bin/perl
+#
+# Usage:
+#  after running your `git rebase -i` command type the following in vim editor
+#  :%!git-rb
+#
+
+use warnings;
+use strict;
+
+while (my $line = <>) {
+    if ($line =~ m/^\w+\s+([0-9a-f]+)\s+.+$/){
+        my $files = `git --no-pager log --pretty=format: --name-only  -n1 $1`;
+        $files =~ s/^(.)/#  $1/gm;
+
+        print $line;
+        print $files;
+    } else {
+        print $line;
+    }
+}
