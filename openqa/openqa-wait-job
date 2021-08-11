@@ -12,7 +12,7 @@ exit(main(@ARGV));
 sub check_job
 {
     my ($host, $job) = @_;
-    my $cmd = "openqa-client --json-output --host $host jobs/$job";
+    my $cmd = "openqa-cli api --host $host jobs/$job";
     my $output = qx($cmd);
     die("ERROR: command failed '$cmd'") unless($? == 0);
     my $res = decode_json($output);
@@ -77,7 +77,7 @@ sub get_schedule_statistics
 sub set_job_prio
 {
     my ($host, $job, $prio) = @_;
-    my $cmd = "openqa-client --host $host jobs/$job put --json-data '{\"priority\": $prio }'";
+    my $cmd = "openqa-cli api --host $host -X PUT --json --data '{\"priority\": $prio }' jobs/$job ";
     my $output = qx($cmd);
     die("ERROR: command failed '$cmd'") unless($? == 0);
 }
