@@ -1,0 +1,33 @@
+#!/bin/bash -e
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
+source "$SCRIPT_DIR/.vault_include"
+
+vault_login;
+
+RES=$(vault write "${VAULT_NAMESPACE}/aws/sts/openqa-role-eks"  -format=json)
+echo $RES
+LEASE_ID=$(echo "${RES}" | jq -r '.lease_id')
+
+ACCESS_KEY=$(echo "${RES}" | jq -r '.data.access_key')
+SECRET_KEY=$(echo "${RES}" | jq -r '.data.secret_key')
+SECURITY_TOKEN=$(echo "${RES}" | jq -r '.data.security_token')
+REGION=${REGION:-eu-central-1}
+
+
+echo "--------------------------------"
+echo "Vault namespace: ${VAULT_NAMESPACE}"
+echo "--------------------------------"
+echo "# Revoke with:"
+echo "curl --header 'X-Vault-Token: $VAULT_TOKEN'  --request POST --data '{\"lease_id\":\"${LEASE_ID}\"}' ${VAULT_ADDR}/v1/sys/leases/revoke" | tee -a ~/.vault_leases
+echo "--------------------------------"
+echo "export AWS_ACCESS_KEY_ID=$ACCESS_KEY"
+echo "export AWS_SECRET_ACCESS_KEY=$SECRET_KEY"
+echo "export AWS_DEFAULT_REGION=$REGION"
+echo "export AWS_SESSION_TOKEN='$SECURITY_TOKEN'"
+echo 
+echo 'aws sts get-caller-identity'
+echo 
+echo 'CLUSTER_NAME=qe-c-testing-2'
+echo 'aws eks update-kubeconfig --name $CLUSTER_NAME'
+echo 'kubectl get nodes'
+echo '--------------------------------'
