@@ -5,8 +5,21 @@ use Mojo::UserAgent;
 use Mojo::UserAgent::Transactor;
 use Mojo::File qw(path);
 use Getopt::Long qw(:config no_ignore_case bundling auto_help);
+use Pod::Usage;
 use Data::Dumper;
 
+sub get_json
+{
+    my $url = shift;
+    my $ua      = Mojo::UserAgent->new();
+    $ua->max_redirects(5);
+
+    my $res = $ua->get($url)->res;
+    return $res->json if ($res && $res->json);
+
+    map { sprintf("%s: %s\n", $_, trim($res->error->{$_})) } keys %{$res->error};
+    die("Unable to receive json from $url");
+}
 
 sub main {
     my $HOST = 'https://openqa.suse.de';
@@ -47,12 +60,18 @@ sub main {
 
     $HOST =~ s'/+$'';
     $COMMENT=~ s/'/'"'"'/;
-    for my $job (@JOBS) {
-        say '#'x79;
+    JOB: for my $job (@JOBS) {
         my $url = $HOST . '/t' . $job;
 
         # openqa-client --host https://openqa.suse.de jobs/3918778/comments post --form text="test"
-        my $cmd = "openqa-client --host $HOST jobs/$job/comments post  --form 'text=$COMMENT'";
+        my $comments = get_json($HOST. '/api/v1/jobs/'. $job . '/comments');
+        for my $comment (@$comments){
+            if ($comment->{text} eq $COMMENT){
+                next JOB;
+            }
+        }
+
+        my $cmd = "openqa-cli api --host $HOST -X POST jobs/$job/comments post  'text=$COMMENT'";
         say $cmd;
         system($cmd);
     }
