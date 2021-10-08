@@ -1,0 +1,105 @@
+#!/usr/bin/perl 
+
+use Mojo::Base -strict;
+use Mojo::Util 'trim';
+use Mojo::UserAgent;
+use Data::Dumper;
+use Getopt::Long qw(:config no_ignore_case bundling auto_help);
+    
+
+sub get_json
+{
+    my $url = shift;
+    my $ua      = Mojo::UserAgent->new();
+    $ua->max_redirects(5);
+
+    my $res = $ua->get($url)->res;
+    return $res->json if ($res && $res->json);
+
+    map { sprintf("%s: %s\n", $_, trim($res->error->{$_})) } keys %{$res->error};
+    die("Unable to receive json from $url");
+}
+
+sub main {
+    my $details_url = "https://openqa.suse.de/tests/overview?groupid=349&groupid=376&groupid=375&groupid=370&groupid=348&groupid=351&groupid=356&groupid=360&groupid=369&groupid=352&groupid=353&groupid=357&groupid=355&groupid=354&groupid=358&groupid=378&groupid=379&groupid=380&groupid=381&groupid=383&groupid=384&groupid=377&groupid=362&groupid=329&groupid=363&groupid=326&groupid=298&groupid=395&groupid=313&groupid=382";
+    my $overall_match = qr/^failed$/;
+    my $testresult_match = $overall_match;
+    my $testdetailresult_match = qr/^fail$/;
+    my $testdetail_text_match = undef; 
+
+    GetOptions(
+            'overview-url=s' => \$details_url,
+            'overall-match=s' => \$overall_match,
+            'testresult-match=s' => \$testresult_match,
+            'text-match|m=s' => \$testdetail_text_match,
+            'detailresult-match=s' => \$testdetailresult_match,
+    ) or die;
+
+    die("Missing --text-match argument") unless($testdetail_text_match);
+
+    $details_url =~ s/overview\?/overview.json\?/;
+    my ($host) = $details_url =~ m'^(https?://[^/]+)';
+
+    my $groupdetails = get_json($details_url);
+
+    for my $distri (keys(%{$groupdetails->{results}})) {
+        for my $version (keys(%{$groupdetails->{results}->{$distri}})) {
+            for my $flavor (keys(%{$groupdetails->{results}->{$distri}->{$version}})) {
+                for my $test (keys(%{$groupdetails->{results}->{$distri}->{$version}->{$flavor}})) {
+                    for my $arch (keys(%{$groupdetails->{results}->{$distri}->{$version}->{$flavor}->{$test}})) {
+                        next if ($arch eq 'description');
+                        my $job = $groupdetails->{results}->{$distri}->{$version}->{$flavor}->{$test}->{$arch};
+                        next unless (($job->{state} // '') eq 'done');
+                        next unless (($job->{overall} // '') =~ $overall_match);
+
+                        my $job_details = get_json($host . '/api/v1/jobs/' . $job->{jobid} . '/details');
+
+                        for my $testresult (@{$job_details->{job}->{testresults}}) {
+                            next unless ($testresult->{result} =~ $testresult_match);
+
+                            for my $resultdetail(@{$testresult->{details}}) {
+                                next unless ($resultdetail->{result} =~ $testdetailresult_match);
+
+                                for my $txt ($resultdetail->{text_data}, $resultdetail->{display_title}){
+                                    if (($txt // '') =~ $testdetail_text_match){
+                                        say $host . "/t" . $job->{jobid};
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+exit(main(@ARGV));
+
+
+__END__
+
+=head1 NAME
+
+Find by default all failed jobs which have a match in the detail error field
+to the given --text-match regex.
+
+=head1 SYNOPSIS
+
+  Mandatory options:
+    --text-match|m        The regex which is used to match agains display_title
+                          and text_data of detailed result. 
+
+  Optional options:
+    --overview-url        A openqa overview url like C<https://openqa.suse.de/tests/overview?groupid=349>
+                          The default is the QAC review page.
+    --overall-match       Regex to match the overall result (default: ^failed$)
+    --testresult-match    Regex to match teh testresult (default: the --overall-match value)
+    --detailresult-match  Regex to match the detail result (default: '^fail$)
+    --comment|-c <string> The comment to add to the tests
+
+=head1 EXAMPLE
+
+  openqa-find-jobs-by-error -m 'Timeout on _engine_script_run.*zypper -nv ref' | openqa-job-add-comment -c 'poo#99789' -
+
+=cut
