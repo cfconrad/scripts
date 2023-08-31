@@ -81,7 +81,7 @@ EOT
 
 # Creating a monitor device for debuggin
 if [ ! -e /sys/class/net/mon1 ]; then
-  iw phy phy1 interface add mon1 type managed
+  iw phy phy1 interface add mon1 type monitor
 fi
 
 wpa_supplicant -c wpa_supplicant.conf -i wlan1 -ddd
