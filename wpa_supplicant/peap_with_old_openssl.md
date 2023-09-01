@@ -32,7 +32,7 @@ if [ -e /var/run/hostapd.pid ]; then
   kill $(cat /var/run/hostapd.pid)
 fi
 
-cat > hostapd.conf <<-EOT
+cat > /etc/hostapd.conf <<-EOT
 	ctrl_interface=/var/run/hostapd
 	interface=wlan0
 	driver=nl80211
@@ -58,7 +58,7 @@ cat > hostapd.conf <<-EOT
 EOT
 
 ip netns exec $netns ip addr add dev wlan0 10.4.4.1/24 
-ip netns exec $netns hostapd -P /var/run/hostapd.pid -B hostapd.conf
+ip netns exec $netns hostapd -P /var/run/hostapd.pid -B /etc/hostapd.conf
 
 
 cat > wpa_supplicant.conf << EOT
