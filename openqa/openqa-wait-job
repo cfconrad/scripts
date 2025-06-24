@@ -91,7 +91,6 @@ sub main {
     GetOptions(
         'host=s' => \$HOST,
         'prio=i' => \$prio,
-        'j|job=s' => sub { push @JOBS , @_; },
         'download' => \$DO_DOWNLOAD,
     ) or die;
 
@@ -101,9 +100,25 @@ sub main {
             push(@parsable_urls, ($line =~ m%(https?://[^/]+/(?:t\d+|tests/\d+))\s+%gm));
             if ($line =~ m/^\s*{\s*$/ || $line =~ m/^\s*{.*}\s*$/){
                 say "Hmm yummy -- looks like JSON input.";
-                $line .= $_ while(<>);
+                my $cnt_start = scalar(grep { m/{/ } split(//, $line));
+                my $cnt_end = scalar(grep { m/}/ } split(//, $line));
+                while ($cnt_start != $cnt_end) {
+                  if (<>) {
+                    $line .= $_;
+                  } else {
+                    last;
+                  }
+                  $cnt_start = scalar(grep { m/{/ } split(//, $line));
+                  $cnt_end = scalar(grep { m/}/ } split(//, $line));
+                }
                 my $json = decode_json($line);
-                push @JOBS, @{$json->{ids}} if $json->{ids};
+                if (my $ids = $json->{ids}) {
+                    if (ref($ids) eq 'HASH') {
+                        push @JOBS, values %$ids;
+                    } else {
+                        push @JOBS, @$ids;
+                    }
+                }
                 push @JOBS, $json->{id} if $json->{id};
                 if ($json->{failed}){
                     for my $f (@{$json->{failed}}){
@@ -119,10 +134,10 @@ sub main {
     for my $url (@parsable_urls){
         if ($url =~ m%^(https?://[^/]+)/tests/(\d+)%){
             $HOST = $1;
-            push @JOBS, $2;
+            push @JOBS, {host =>$1, id=>$2};
         }elsif ($url =~ m%^(https?://[^/]+)/t(\d+)%){
             $HOST = $1;
-            push @JOBS, $2;
+            push @JOBS, {host =>$1, id=>$2};
         }elsif ($url =~ m/^\d+$/){
             push @JOBS, $url;
         } else {
@@ -130,38 +145,77 @@ sub main {
         }
     }
 
+    my %jobs_by_host;
+
+    for my $job (@JOBS) {
+        my $host = $HOST;
+        my $jobid = $job;
+
+        if(ref($job) eq 'HASH') {
+            $host = $job->{host};
+            $jobid = $job->{id};
+        }
+
+        $jobs_by_host{$host} //= [];
+        push @{$jobs_by_host{$host}} , $jobid;
+    }
+    #  sort @{$jobs_by_host{$_}} for (keys %jobs_by_host);
+
     print "Wait for " . @JOBS . " jobs:";
     print $/ if(@JOBS > 1);
-    print "  $HOST/t$_ $/" for(@JOBS);
-    my $results = {};
+
+    for my $host (keys %jobs_by_host) {
+        for my $jobid (@{$jobs_by_host{$host}}){
+            say "  $host/t$jobid";
+        }
+    }
+    my %results_by_host;
     my $count = 0;
     while ( 1 ) {
         $count++;
         print("-[$count]-$/");
-        get_schedule_statistics($HOST, $prio) if(@JOBS);
-        for my $job (keys(%{$results})){
-            my $j = $results->{$job};
-            print "$HOST/t$job - ". $j->{openqa_res}->{job}->{test} . " => $j->{result}" . $/;
-        }
+        for my $host (keys %jobs_by_host) {
+            @JOBS = @{$jobs_by_host{$host}};
+            my $results = $results_by_host{$host};
 
-        last if (@JOBS == 0);
 
-        my @next_jobs;
-        for my $job (@JOBS){
-            my $res = check_job($HOST, $job);
-            if ($res){
-                $results->{$job} = $res;
-                download_job($HOST, $job) if ($DO_DOWNLOAD);
-            } else {
-                push @next_jobs , $job;
-                set_job_prio($HOST, $job, $prio) if ($prio != -1 && $count == 1);
+            get_schedule_statistics($host, $prio) if(@JOBS);
+            for my $job (keys(%{$results})){
+                my $j = $results->{$job};
+                print "$host/t$job - ". $j->{openqa_res}->{job}->{test} . " => $j->{result}" . $/;
             }
+
+            next if (@JOBS == 0);
+
+            my @next_jobs;
+            for my $job (@JOBS){
+                my $res = check_job($host, $job);
+                if ($res){
+                    $results_by_host{$host} //= {};
+                    $results_by_host{$host}->{$job} = $res;
+                    download_job($host, $job) if ($DO_DOWNLOAD);
+                } else {
+                    push @next_jobs , $job;
+                    set_job_prio($host, $job, $prio) if ($prio != -1 && $count == 1);
+                }
+            }
+            $jobs_by_host{$host} = [@next_jobs];
+            sleep 5;
         }
-        @JOBS = @next_jobs;
-        sleep 5;
+        my @all_jobs = map { @{$jobs_by_host{$_}} } keys %jobs_by_host;
+        last if (@all_jobs == 0);
     }
 
-    exit grep {!m/^passed$/} map { $results->{$_}->{result} } keys(%$results);
+    say "X"x80;
+    my @all_results;
+    for my $host (keys %results_by_host) {
+        for my $jobid (keys %{$results_by_host{$host}}) {
+            my $j = $results_by_host{$host}->{$jobid};
+            push @all_results, $j->{result};
+            print "$host/t$jobid - ". $j->{openqa_res}->{job}->{test} . " => $j->{result}" . $/;
+        }
+    };
+    exit grep {!m/^passed$/} @all_results;
 }
 
 __END__
